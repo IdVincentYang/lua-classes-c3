@@ -32,14 +32,17 @@ as <interface>
 local Biological = Class()
 assert(Biological)
 
+--  添加静态成员和方法
+Class.Static(Biological, "Counter", 0)
+Class.Static(Biological, "GetCount", function()
+    return Biological.Counter
+end)
+
 --  添加成员属性和方法
 Biological.hp = 0
 
 function Biological:ctor(args)
-    print("create Biological instance:", self, args)
-    if args then
-        self.hp = args.hp
-    end
+    Biological.Counter = Biological.Counter + 1
 end
 
 function Biological:alive()
@@ -47,14 +50,14 @@ function Biological:alive()
 end
 
 --  创建实例
---local biological = Biological()
---assert(biological)
+local biological = Biological()
+assert(Biological.GetCount() == 1)
 --
 ----  调用成员函数和方法
---assert(biological.hp == 0)
---assert(biological:alive() == false)
---biological.hp = 3
---assert(biological:alive() == true)
+assert(biological.hp == 0)
+assert(biological:alive() == false)
+biological.hp = 3
+assert(biological:alive() == true)
 
 --  branch class
 local Animal = Class(Biological, "Animal")
@@ -69,20 +72,21 @@ Animal.eat = Class.ABSTRACT_FUNCTION
 --    end
 --end
 
-assert(Animal.super == Biological)
-
 --  leaf class
 local PERSON_WALK_SPEED = 30
 local Person = Class("Persion", Animal)
 
+Class.Static(Person, "Counter", 0)
+Class.Static(Person, "GetCount", function()
+    return Person.Counter
+end)
+
 Person.language = "en"
 
 function Person:ctor(args)
-    print("create Person instance:", self, args)
-    if args then
-        self.hp = args.hp
-    end
+    Person.Counter = Person.Counter + 1
 end
+
 function Person:eat(food)
     if food then
         self.hp = self.hp + 1
@@ -104,9 +108,37 @@ assert(person1:alive() == true)
 local person2 = Person(person1)
 assert(person2:alive() == true)
 
-print("---------- Class Debug: ---------")
-Class.debug()
---  接口
+assert(Person.GetCount() == 2)
+assert(Biological.GetCount() == 3)
+print("---------- Test inheritance done. ---------")
+
+----------------------------------------------------------------------------
+--  定义接口：
+
+local Reader = Class("Reader")
+Reader.read = Class.ABSTRACT_FUNCTION
+
+local Writer = Class("Writer")
+Writer.write = Class.ABSTRACT_FUNCTION
+
+--  有虚拟函数的类不能实例化
+assert(pcall(Reader) == false)
+assert(pcall(Writer) == false)
+
+--  实现接口
+local StringStream = Class("StringStream", Reader, Writer)
+
+StringStream.src = "";
+function StringStream:read(n)
+    local ret = string.sub(self.src, 1, n)
+    self.src = string.sub(self.src, #ret)
+    return ret
+end
+function StringStream:write(s)
+    self.src = self.src .. s
+end
+
+local strStream = StringStream()
 
 --  覆盖
 
@@ -117,3 +149,7 @@ Class.debug()
 3.  instance_cache: 通过接口实现
 4.  lazy loader: 懒加载成员函数
  ]]
+
+
+--print("---------- Class Debug: ---------")
+--Class.debug()

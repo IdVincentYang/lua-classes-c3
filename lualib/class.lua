@@ -35,7 +35,14 @@ end
 M.debug_table = debug_table
 M.ABSTRACT_FUNCTION = abstruct_func
 M.OnInstantiate = function(instance, args)
-    print("OnInstantiate:", instance, args)
+    if args ~= nil and type(args) == "table" then
+        for k, v in pairs(args) do
+            local type_v = type(v)
+            if type_v == "boolean" or type_v == "number" or type_v == "string" then
+                instance[k] = v
+            end
+        end
+    end
 end
 
 --  key: class, value: class members table
@@ -47,6 +54,10 @@ function M.debug()
         print("Class ".. (meta.name or "<anonymous>")..":", class)
         debug_table(meta, 1)
     end
+end
+
+function M.Static(Class, name, val)
+    rawset(Class, name, val)
 end
 
 local function make_constructor(class)
@@ -133,22 +144,27 @@ local function make_class(name, extends)
     local class_meta = {
         name = name,
         extends = extends,
-        members = members,
-        __newindex = function(_, k, v)
-            if v == nil then
-                return
+        instance = instance_meta,
+        __newindex = function(t, k, v)
+            --  有虚函数的类不能实例化
+            if v == abstruct_func then
+                getmetatable(t).abstract = true
             end
-            if rawget(members, k) == nil then
-                members[#members + 1] = {
-                    name = k,
-                    type = type(v)
-                }
-            end
-            rawset(members, k, v ~= abstruct_func and v or nil)
+            members[k] = v
         end,
     }
     setmetatable(class, class_meta)
     class_meta.__call = function(_, args)
+        if class_meta.abstract then
+            --  检查 abstract 函数是否被覆盖掉
+            for k, v in pairs(members) do
+                if v == abstruct_func then
+                    error("Can't instantiate abstract class!")
+                end
+            end
+            --  no abstract
+            class_meta.abstract = nil
+        end
         local instance = setmetatable({}, instance_meta)
         local construct = class_meta.construct or make_constructor(class)
         construct(instance, args)
