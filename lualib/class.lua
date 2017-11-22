@@ -1,6 +1,18 @@
 
 local M = {}
 
+local function class_get_name(class)
+    return getmetatable(class).name or "<anonymous>"
+end
+
+local function throw(...)
+    local strs = table.pack(...)
+    for i = 1, #strs do
+        strs[i] = tostring(strs[i])
+    end
+    error(table.concat(strs, "\t"))
+end
+
 local function debug_table(t, level)
     level = level or 0
     local prefix = {}
@@ -27,7 +39,7 @@ local function debug_table(t, level)
 end
 
 local dummy_func = function()
-    print("----- dummy func called")
+    print("----- dummy func called at", debug.traceback())
 end
 local abstruct_func = function(self)
 end
@@ -45,11 +57,20 @@ M.OnInstantiate = function(instance, args)
     end
 end
 
---  key: class, value: class members table
-local members_map = {}
+--  key: class name, value: class; anonymous class in array part.
+local class_map = {}
+
+local function register_class(class, name)
+    if name ~= nil then
+        class_map[name] = class
+    else
+        class_map[#class_map + 1] = class
+    end
+end
 
 function M.debug()
-    for class,_ in pairs(members_map) do
+    print("--------- debug class: ---------")
+    for _,class in pairs(class_map) do
         local meta = getmetatable(class)
         print("Class ".. (meta.name or "<anonymous>")..":", class)
         debug_table(meta, 1)
@@ -60,118 +81,214 @@ function M.Static(Class, name, val)
     rawset(Class, name, val)
 end
 
-local function make_constructor(class)
-    local meta = getmetatable(class)
---    local class_name = meta.name or "<anonyous>"
---    print("!!+ make_constructor begin:", class_name, debug.traceback())
-    local base, construct
-    local ics, icn, extends = {}, 0, meta.extends
-    for i = 2, #extends do
-        base = extends[i]
-        construct = getmetatable(base).construct or make_constructor(base)
-        if construct ~= dummy_func then
-            icn = icn + 1
-            ics[icn] = construct
+local function instance_index_lazy(instance, member)
+    local instance_meta = getmetatable(instance)
+    local class_meta = getmetatable(instance_meta.class)
+    --  把 mro 中的类的真正 members 取出来放到一个数组中
+    local fmro = {class_meta.members}
+    local mro = class_meta.mro
+    for i = 2, #mro do
+        fmro[i] = getmetatable(mro[i]).members
+    end
+    instance_meta.__index = function(t, k)
+        local mro = fmro
+        local m, v
+        for i = 1, #mro do
+            m = mro[i]
+            v = m[k]
+            if v ~= nil then
+                t[k] = v
+                return v
+            end
         end
     end
 
-    local construct_super
-    local base = class.super
-    if base then
-        construct_super = getmetatable(base).construct or make_constructor(base)
-    else
-        construct_super = M.OnInstantiate
-    end
-
-    local ctor = rawget(members_map[class], "ctor")
-    if not ctor then
-        if #ics == 0 then
-            construct = construct_super
-        else
-            construct = function(instance, args)
-                construct_super(instance, args)
-                local arr, len = ics, #ics
-                for i = len, 1, -1 do
-                    arr[i](instance)
-                end
-            end
-        end
-    else
-        if #ics == 0 then
-            construct = function(instance, args)
-                construct_super(instance, args)
-                ctor(instance, args)
-            end
-        else
-            construct = function(instance, args)
-                construct_super(instance, args)
-                local arr, len = ics, #ics
-                for i = len, 1, -1 do
-                    arr[i](instance)
-                end
-                ctor(instance, args)
-            end
-        end
-    end
---    print("!!- make_constructor end:", class_name, construct)
-    meta.construct = construct
-    return construct
+    return instance_meta.__index(instance, member)
 end
 
-local function make_class(name, extends)
-    local members = setmetatable({}, {
-        __index = function(t, k)
-            for _, base in ipairs(extends) do
-                local m = members_map[base][k]
-                if m ~= nil then
-                    t[k] = m
---                    print("class ", name or "<anonymous>", "found member:", k, m, debug.traceback())
-                    return m
-                end
+local function class_set_member(class, k, v)
+    getmetatable(class).members[k] = v
+end
+
+local function class_is_abstract(class)
+    local mro = getmetatable(class).mro
+    --  从基类开始合并所有的成员函数
+    local funcs = {}
+    for i = #mro, 1, -1 do
+        for k, v in pairs(getmetatable(mro[i]).members) do
+            if type(v) == "function" then
+                funcs[k] = v
             end
         end
-    })
+    end
+    local af = abstruct_func
+    --  判断最终的所有成员函数中是否有 abstruct 函数
+    for _, f in pairs(funcs) do
+        if f == af then
+            return true
+        end
+    end
+    return false
+end
 
-    local class = {
-        super = extends[1]
-    }
-    members_map[class] = members
+local function class_make_construct(class)
+    local mro = getmetatable(class).mro
+    local ctors = { M.OnInstantiate }
+    local ctor
+    for i = #mro, 1, -1 do
+        ctor = getmetatable(mro[i]).members.ctor
+        if ctor then
+            ctors[#ctors + 1] = ctor
+        end
+    end
+    return function(instance, args)
+        local cs = ctors
+        for i = 1, #cs do
+            cs[i](instance, args)
+        end
+    end
+end
 
+local function class_call_lazy(class, args)
+    local class_meta = getmetatable(class)
+    --  构造 instance metatable
     local instance_meta = {
         class = class,
-        __index = members,
+        __index = instance_index_lazy
     }
-    local class_meta = {
-        name = name,
-        extends = extends,
-        instance = instance_meta,
-        __newindex = function(t, k, v)
-            --  有虚函数的类不能实例化
-            if v == abstruct_func then
-                getmetatable(t).abstract = true
-            end
-            members[k] = v
-        end,
-    }
-    setmetatable(class, class_meta)
+    --  生成类实例创建函数
     class_meta.__call = function(_, args)
-        if class_meta.abstract then
-            --  检查 abstract 函数是否被覆盖掉
-            for k, v in pairs(members) do
-                if v == abstruct_func then
-                    error("Can't instantiate abstract class!")
-                end
-            end
-            --  no abstract
-            class_meta.abstract = nil
+        local clazz = class
+        local meta = class_meta
+        local abstract = meta.abstract
+        if abstract == nil then
+            abstract = class_is_abstract(clazz)
+            meta.abstract = abstract
         end
+        if abstract == true then
+            return throw("can't instantiate abstract class", class_get_name(clazz))
+        end
+
         local instance = setmetatable({}, instance_meta)
-        local construct = class_meta.construct or make_constructor(class)
+        local construct = meta.construct
+        if not construct then
+            construct = class_make_construct(clazz)
+            meta.construct = construct
+        end
         construct(instance, args)
         return instance
     end
+    return class_meta.__call(class, args)
+end
 
-    return class
+--  操作 mros 中的数组中的元素时，使用增加数组偏移量的方式来避免移动数组中的元素
+--  mros's element style: { idx: <start index>, num: <class num>, arr: <origin array> }
+local function merge_mro(out, mros)
+    local n = #mros
+    if n == 0 then
+        return out
+    end
+    local in_tail = false
+    local mro, h, m, i, j
+    i = 1
+    while i < n do
+        repeat
+            --  取出第i个tail中的第一个元素
+            mro = mros[i]
+            if mro.num == 0 then
+                --  此 mro 已空了，取下一个的
+                break
+            end
+            --  取出第 i 个 mro 中的头
+            h = mro.arr[mro.idx]
+            --  判断其它 mro 中是否有 h 在 tail 中
+            j = 1
+            while j <= n do
+                if i == j then
+                    if j == n then
+                        break
+                    else
+                        j = j + 1
+                    end
+                end
+                m = mros[j]
+                j = j + 1
+                local arr = m.arr
+                local v = m.idx + m.num
+                for u = m.idx + 1, v do
+                    if arr[u] == h then
+                        in_tail = true
+                        break
+                    end
+                end
+
+                if in_tail then
+                    break
+                end
+            end
+            --  如果  在其它 mro 的 tail 中，取下一个 mro 的 h
+            if in_tail then
+                in_tail = false
+                break
+            end
+            --  输出 h
+            out[#out + 1] = h
+            --  删除 mros 中所有 h
+            for k = 1, n do
+                mro = mros[k]
+                if mro.num > 0 and mro.arr[mro.idx] == h then
+                    mro.idx = mro.idx + 1
+                    mro.num = mro.num - 1
+                end
+            end
+            i = 0
+        until true
+        i = i + 1
+    end
+    --  如果遍历完了 mros 但是还是有 h 在别的 mro 的 tail 中，说明无法 merge
+    if in_tail then
+        return nil
+    else
+        return out
+    end
+end
+
+--  https://en.wikipedia.org/wiki/C3_linearization
+local function make_class_c3(name, extends)
+    --  先声明类
+    local class = {}
+    --  构建mro序列
+    local tail_mros = {}
+    local base_num = #extends
+    for i = 1, base_num do
+        local base_mro = getmetatable(extends[i]).mro
+        tail_mros[i] = {
+            idx = 1,
+            num = #base_mro,
+            arr = base_mro,
+        }
+        tail_mros[base_num + i] = {
+            idx = i,
+            num = 1,
+            arr = extends,
+        }
+    end
+    local mro = merge_mro({class}, tail_mros)
+    if mro == nil then
+        local base_names = {}
+        for i = 1, #extends do
+            base_names[i] = class_get_name(extends[i])
+        end
+        return throw("Cannot create a consistent method resolution order (MRO) for bases", table.unpack(base_names))
+    end
+
+    return setmetatable(class, {
+        members = {},
+        mro = mro,
+        name = name,
+        __newindex = class_set_member,
+        __call = class_call_lazy,
+    })
 end
 
 return setmetatable(M, {
@@ -205,8 +322,11 @@ return setmetatable(M, {
                 extends[#extends + 1] = arg
             until true
         end
-
-        local class = make_class(name, extends)
+        if name ~= nil and class_map[name] then
+            return throw("there is class registered with this name", name, class_map[name])
+        end
+        local class = make_class_c3(name, extends)
+        register_class(class, name)
         return class
     end
 })

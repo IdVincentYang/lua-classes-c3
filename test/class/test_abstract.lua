@@ -30,5 +30,3 @@ assert(strStream:read(1) == "")
 strStream:write("abc")
 assert(strStream:read(2) == "ab")
 assert(strStream:read(2) == "c")
-
-print("---------- Test abstract done. ---------")
