@@ -1,4 +1,3 @@
-
 local M = {}
 
 local function class_get_name(class)
@@ -30,7 +29,7 @@ local function debug_table(t, level)
                 debug_table(v, level + 2)
             end
         else
-            print(prefix, k..":", v)
+            print(prefix, k .. ":", v)
             if vt == "table" then
                 debug_table(v, level + 1)
             end
@@ -70,11 +69,38 @@ end
 
 function M.debug()
     print("--------- debug class: ---------")
-    for _,class in pairs(class_map) do
+    for _, class in pairs(class_map) do
         local meta = getmetatable(class)
-        print("Class ".. (meta.name or "<anonymous>")..":", class)
+        print("Class " .. (meta.name or "<anonymous>") .. ":", class)
         debug_table(meta, 1)
     end
+end
+
+function M.IsClass(c)
+    local is_class = false
+    repeat
+        if type(c) ~= "table" then
+            break
+        end
+        local meta = getmetatable(c)
+        if not meta then
+            break
+        end
+        if type(meta.mro) ~= "table" then
+            break
+        end
+        if meta.name then
+            is_class = class_map[meta.name] and true or false
+            break
+        end
+        for i = 1, #class_map do
+            if c == class_map[i] then
+                is_class = true
+                break
+            end
+        end
+    until true
+    return is_class
 end
 
 function M.Static(Class, name, val)
@@ -133,7 +159,7 @@ end
 
 local function class_make_construct(class)
     local mro = getmetatable(class).mro
-    local ctors = { M.OnInstantiate }
+    local ctors = {M.OnInstantiate}
     local ctor
     for i = #mro, 1, -1 do
         ctor = getmetatable(mro[i]).members.ctor
@@ -254,7 +280,7 @@ local function merge_mro(out, mros)
 end
 
 --  https://en.wikipedia.org/wiki/C3_linearization
-local function make_class_c3(name, extends)
+local function make_class_c3(name, extends, members)
     --  先声明类
     local class = {}
     --  构建mro序列
@@ -265,12 +291,12 @@ local function make_class_c3(name, extends)
         tail_mros[i] = {
             idx = 1,
             num = #base_mro,
-            arr = base_mro,
+            arr = base_mro
         }
         tail_mros[base_num + i] = {
             idx = i,
             num = 1,
-            arr = extends,
+            arr = extends
         }
     end
     local mro = merge_mro({class}, tail_mros)
@@ -282,51 +308,64 @@ local function make_class_c3(name, extends)
         return throw("Cannot create a consistent method resolution order (MRO) for bases", table.unpack(base_names))
     end
 
-    return setmetatable(class, {
-        members = {},
-        mro = mro,
-        name = name,
-        __newindex = class_set_member,
-        __call = class_call_lazy,
-    })
+    return setmetatable(
+        class,
+        {
+            members = members,
+            mro = mro,
+            name = name,
+            __newindex = class_set_member,
+            __call = class_call_lazy
+        }
+    )
 end
 
-return setmetatable(M, {
-    __call = function(_, ...)
-        local args, extends = table.pack(...), {}
-        local arg, arg_type, name
-        for i = 1, args.n do
-            arg = args[i]
-            repeat
-                if arg == nil then
-                    break
-                end
-                arg_type = type(arg)
-                if arg_type == "string" then
-                    if name then
-                        --  已经有名称了？
+return setmetatable(
+    M,
+    {
+        __call = function(_, ...)
+            local args, extends, members = table.pack(...), {}, {}
+            local arg, arg_type, name
+            for i = 1, args.n do
+                arg = args[i]
+                repeat
+                    if arg == nil then
+                        break
                     end
-                    assert(#arg > 0)
-                    --  检查此名称是否已被使用
-                    name = arg
-                    break
-                end
-                if arg_type ~= "table" then
-                    break
-                end
-                if extends[arg] ~= nil then
-                    --  重复了？
-                    break
-                end
-                extends[arg] = true
-                extends[#extends + 1] = arg
-            until true
+                    arg_type = type(arg)
+                    if arg_type == "string" then
+                        if name then
+                        --  已经有名称了？
+                        end
+                        assert(#arg > 0)
+                        --  检查此名称是否已被使用
+                        name = arg
+                        break
+                    end
+                    if arg_type ~= "table" then
+                        break
+                    end
+                    if not M.IsClass(arg) then
+                        --  此 arg 不是类，认为是定义类成员的 table，把 members 合并到 members 变量
+                        for k, v in pairs(arg) do
+                            members[k] = v
+                        end
+                        break
+                    end
+                    if extends[arg] ~= nil then
+                        --  重复了？
+                        break
+                    end
+                    extends[arg] = true
+                    extends[#extends + 1] = arg
+                until true
+            end
+            if name ~= nil and class_map[name] then
+                return throw("there is class registered with this name", name, class_map[name])
+            end
+            local class = make_class_c3(name, extends, members)
+            register_class(class, name)
+            return class
         end
-        if name ~= nil and class_map[name] then
-            return throw("there is class registered with this name", name, class_map[name])
-        end
-        local class = make_class_c3(name, extends)
-        register_class(class, name)
-        return class
-    end
-})
+    }
+)

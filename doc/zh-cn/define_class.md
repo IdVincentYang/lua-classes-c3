@@ -67,10 +67,10 @@ local myClass1 = MyClass()
 ```
 这样就创建了两个'MyClass'的实例，这样调用类成员变量：
 ``` lua
-myClass1.aIntProperty = 1;
-MyClass2.aIntProperty = 2;
+myClass1.aIntProperty = 1
+myClass2.aIntProperty = 2
 print(myClass1.aIntProperty, myClass2.aIntProperty) --  output: 1    2
-MyClass2.aStringProperty = "def";
+myClass2.aStringProperty = "def"
 print(myClass1.aStringProperty .. myClass2.aStringProperty) --  output: "abcdef";
 ```
 可以这样调用类成员函数：
@@ -101,9 +101,9 @@ function MyClass:ctor()
     local array = {}
     --  示例中的table是一个array
     for i, v in ipairs(self.aTableProperty) do
-        value[i] = v;
+        array[i] = v
     end
-    self.aTableProperty = array;
+    self.aTableProperty = array
 end
 ```
 这样定义构造函数后，比较两个实例的'aTableProperty'将会输出：'reference different table'
@@ -160,9 +160,9 @@ local MyClass = Class("MyClassName", {
 function MyClass:ctor()
     local array = {}
     for i,v in ipairs(self.aTableProperty) do
-        value[i] = v;
+        array[i] = v
     end
-    self.aTableProperty = array;
+    self.aTableProperty = array
 end
 
 function MyClass:foo()

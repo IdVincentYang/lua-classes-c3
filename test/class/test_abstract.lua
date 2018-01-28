@@ -1,6 +1,4 @@
-
 local Class = require("lualib/class")
-
 
 local Reader = Class("Reader")
 Reader.read = Class.ABSTRACT_FUNCTION
@@ -15,7 +13,7 @@ assert(pcall(Writer) == false)
 --  实现接口
 local StringStream = Class("StringStream", Reader, Writer)
 
-StringStream.src = "";
+StringStream.src = ""
 function StringStream:read(n)
     local ret = string.sub(self.src, 1, n)
     self.src = string.sub(self.src, n + 1)
