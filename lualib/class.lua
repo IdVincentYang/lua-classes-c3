@@ -1,15 +1,25 @@
-local M = {}
+--------------------------------------------------------------------------------
+--  local variables and util functions
 
-local function class_get_name(class)
-    return getmetatable(class).name or "<anonymous>"
+--  key: class name, value: class; anonymous class in array part.
+local class_map = {}
+
+local dummy_func = function()
+    print("----- dummy func called at", debug.traceback())
+end
+local abstruct_func = function(self)
 end
 
-local function throw(...)
+local function make_message(...)
     local strs = table.pack(...)
-    for i = 1, #strs do
+    for i = 1, select("#", ...) do
         strs[i] = tostring(strs[i])
     end
-    error(table.concat(strs, "\t"))
+    return table.concat(strs, "\t")
+end
+
+local function get_class_name(class)
+    return getmetatable(class).name or "<anonymous>"
 end
 
 local function debug_table(t, level)
@@ -37,29 +47,38 @@ local function debug_table(t, level)
     end
 end
 
-local dummy_func = function()
-    print("----- dummy func called at", debug.traceback())
-end
-local abstruct_func = function(self)
-end
+--------------------------------------------------------------------------------
+--  instance methods
 
-M.debug_table = debug_table
-M.ABSTRACT_FUNCTION = abstruct_func
-M.OnInstantiate = function(instance, args)
-    if args ~= nil and type(args) == "table" then
-        for k, v in pairs(args) do
-            local type_v = type(v)
-            if type_v == "boolean" or type_v == "number" or type_v == "string" then
-                instance[k] = v
+local function instance_index_lazy(instance, member)
+    local instance_meta = getmetatable(instance)
+    local class_meta = getmetatable(instance_meta.class)
+    --  把 mro 中的类的真正 members 取出来放到一个数组中
+    local members_array = {class_meta.members}
+    local mro = class_meta.mro
+    for i = 2, #mro do
+        members_array[i] = getmetatable(mro[i]).members
+    end
+    instance_meta.__index = function(inst, k)
+        local val = nil
+        local ma = members_array
+        local m, v
+        for i = 1, #ma do
+            m = ma[i]
+            v = m[k]
+            if v ~= nil then
+                inst[k] = v
+                return v
             end
         end
     end
+
+    return instance_meta.__index(instance, member)
 end
 
---  key: class name, value: class; anonymous class in array part.
-local class_map = {}
-
-local function register_class(class, name)
+--------------------------------------------------------------------------------
+--  class methods
+local function class_register(class, name)
     if name ~= nil then
         class_map[name] = class
     else
@@ -67,16 +86,7 @@ local function register_class(class, name)
     end
 end
 
-function M.debug()
-    print("--------- debug class: ---------")
-    for _, class in pairs(class_map) do
-        local meta = getmetatable(class)
-        print("Class " .. (meta.name or "<anonymous>") .. ":", class)
-        debug_table(meta, 1)
-    end
-end
-
-function M.IsClass(c)
+local function class_is_class(c)
     local is_class = false
     repeat
         if type(c) ~= "table" then
@@ -101,35 +111,6 @@ function M.IsClass(c)
         end
     until true
     return is_class
-end
-
-function M.Static(Class, name, val)
-    rawset(Class, name, val)
-end
-
-local function instance_index_lazy(instance, member)
-    local instance_meta = getmetatable(instance)
-    local class_meta = getmetatable(instance_meta.class)
-    --  把 mro 中的类的真正 members 取出来放到一个数组中
-    local fmro = {class_meta.members}
-    local mro = class_meta.mro
-    for i = 2, #mro do
-        fmro[i] = getmetatable(mro[i]).members
-    end
-    instance_meta.__index = function(t, k)
-        local mro = fmro
-        local m, v
-        for i = 1, #mro do
-            m = mro[i]
-            v = m[k]
-            if v ~= nil then
-                t[k] = v
-                return v
-            end
-        end
-    end
-
-    return instance_meta.__index(instance, member)
 end
 
 local function class_set_member(class, k, v)
@@ -157,9 +138,20 @@ local function class_is_abstract(class)
     return false
 end
 
+local function class_on_instantiate(instance, args)
+    if args ~= nil and type(args) == "table" then
+        for k, v in pairs(args) do
+            local type_v = type(v)
+            if type_v == "boolean" or type_v == "number" or type_v == "string" then
+                instance[k] = v
+            end
+        end
+    end
+end
+
 local function class_make_construct(class)
     local mro = getmetatable(class).mro
-    local ctors = {M.OnInstantiate}
+    local ctors = {}
     local ctor
     for i = #mro, 1, -1 do
         ctor = getmetatable(mro[i]).members.ctor
@@ -172,6 +164,7 @@ local function class_make_construct(class)
         for i = 1, #cs do
             cs[i](instance, args)
         end
+        class_on_instantiate(instance, args)
     end
 end
 
@@ -192,7 +185,7 @@ local function class_call_lazy(class, args)
             meta.abstract = abstract
         end
         if abstract == true then
-            return throw("can't instantiate abstract class", class_get_name(clazz))
+            error(make_message("can't instantiate abstract class", get_class_name(clazz)))
         end
 
         local instance = setmetatable({}, instance_meta)
@@ -303,9 +296,11 @@ local function make_class_c3(name, extends, members)
     if mro == nil then
         local base_names = {}
         for i = 1, #extends do
-            base_names[i] = class_get_name(extends[i])
+            base_names[i] = get_class_name(extends[i])
         end
-        return throw("Cannot create a consistent method resolution order (MRO) for bases", table.unpack(base_names))
+        error(
+            make_message("can't create a consistent method resolution order (MRO) for bases", table.unpack(base_names))
+        )
     end
 
     return setmetatable(
@@ -318,6 +313,30 @@ local function make_class_c3(name, extends, members)
             __call = class_call_lazy
         }
     )
+end
+
+--------------------------------------------------------------------------------
+--  module exports
+local M = {}
+
+M.debug_table = debug_table
+M.ABSTRACT_FUNCTION = abstruct_func
+
+M.IsClass = class_is_class
+
+M.OnInstantiate = class_on_instantiate
+
+function M.Static(Class, name, val)
+    rawset(Class, name, val)
+end
+
+function M.debug()
+    print("--------- debug class: ---------")
+    for _, class in pairs(class_map) do
+        local meta = getmetatable(class)
+        print("Class " .. (meta.name or "<anonymous>") .. ":", class)
+        debug_table(meta, 1)
+    end
 end
 
 return setmetatable(
@@ -345,7 +364,7 @@ return setmetatable(
                     if arg_type ~= "table" then
                         break
                     end
-                    if not M.IsClass(arg) then
+                    if not class_is_class(arg) then
                         --  此 arg 不是类，认为是定义类成员的 table，把 members 合并到 members 变量
                         for k, v in pairs(arg) do
                             members[k] = v
@@ -361,10 +380,10 @@ return setmetatable(
                 until true
             end
             if name ~= nil and class_map[name] then
-                return throw("there is class registered with this name", name, class_map[name])
+                error(make_message("there is class registered with this name", name, class_map[name]))
             end
             local class = make_class_c3(name, extends, members)
-            register_class(class, name)
+            class_register(class, name)
             return class
         end
     }
