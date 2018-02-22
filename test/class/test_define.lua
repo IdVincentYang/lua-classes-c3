@@ -1,9 +1,9 @@
 local Class = require("lualib/class")
 
 ----------------------------------------------------------------------------
---  Base Class
+--  Classic Defination
 
---  root class
+--  Base Class
 local Biological = Class()
 assert(Biological)
 
@@ -38,9 +38,7 @@ assert(biological:alive() == false)
 biological.hp = 3
 assert(biological:alive() == true)
 
-----------------------------------------------------------------------------
 --  Derived Classes
-
 local Animal = Class(Biological, "Animal")
 
 Animal.speed = 0

@@ -1,8 +1,22 @@
 --------------------------------------------------------------------------------
 --  local variables and util functions
-
---  key: class name, value: class; anonymous class in array part.
-local class_map = {}
+local function callable(v)
+    local type_v = type(v)
+    if type_v == "function" then
+        return true
+    end
+    repeat
+        if type_v ~= "table" then
+            break
+        end
+        local meta = getmetatable(v)
+        if not meta then
+            break
+        end
+        return callable(meta.__call)
+    until true
+    return false
+end
 
 local dummy_func = function()
     print("----- dummy func called at", debug.traceback())
@@ -16,10 +30,6 @@ local function make_message(...)
         strs[i] = tostring(strs[i])
     end
     return table.concat(strs, "\t")
-end
-
-local function get_class_name(class)
-    return getmetatable(class).name or "<anonymous>"
 end
 
 local function debug_table(t, level)
@@ -47,37 +57,74 @@ local function debug_table(t, level)
     end
 end
 
---------------------------------------------------------------------------------
---  instance methods
+--  key: class name, value: class; anonymous class in array part.
+local class_map = {}
 
-local function instance_index_lazy(instance, member)
-    local instance_meta = getmetatable(instance)
-    local class_meta = getmetatable(instance_meta.class)
-    --  把 mro 中的类的真正 members 取出来放到一个数组中
-    local members_array = {class_meta.members}
-    local mro = class_meta.mro
-    for i = 2, #mro do
-        members_array[i] = getmetatable(mro[i]).members
-    end
-    instance_meta.__index = function(inst, k)
-        local val = nil
-        local ma = members_array
-        local m, v
-        for i = 1, #ma do
-            m = ma[i]
-            v = m[k]
-            if v ~= nil then
-                inst[k] = v
-                return v
-            end
-        end
-    end
-
-    return instance_meta.__index(instance, member)
+local function get_class_name(class)
+    return getmetatable(class).name or "<anonymous>"
 end
 
 --------------------------------------------------------------------------------
---  class methods
+--  super functions
+local function super_newindex(t, k, v)
+    error(make_message("super can't set new key value pair:", k, type(v)))
+end
+
+local function super_make(mro, class, instance)
+    if class == nil then
+        class = mro[1]
+    end
+    local super_class = nil
+    local super_meta = nil
+    for i = 1, #mro do
+        if mro[i] == class then
+            super_class = mro[i + 1]
+            super_meta = getmetatable(super_class)
+            break
+        end
+    end
+    if not super_meta then
+        return nil
+    end
+
+    local super = {}
+    local super_meta = {
+        class = super_class,
+        __newindex = super_newindex,
+        __index = function(_, k)
+            local val = super_meta.find_member(k)
+            if not callable(val) then
+                return val
+            end
+            local func_wraper = function(t, ...)
+                local inst = nil
+                if t == super then
+                    inst = instance
+                else
+                    --  TODO check t instance of class
+                    inst = t
+                end
+                if not inst then
+                    error(make_message("super with invalid instance when call method:", k))
+                end
+                local instance_meta = getmetatable(inst)
+                setmetatable(inst, super_meta.instance_meta)
+                local ret = table.pack(pcall(val, inst, ...))
+                setmetatable(inst, instance_meta)
+                if not ret[1] then
+                    error(ret[2], 0)
+                end
+                return table.unpack(ret, 2)
+            end
+            rawset(super, k, func_wraper)
+            return func_wraper
+        end
+    }
+    return setmetatable(super, super_meta)
+end
+
+--------------------------------------------------------------------------------
+--  class functions
 local function class_register(class, name)
     if name ~= nil then
         class_map[name] = class
@@ -149,6 +196,17 @@ local function class_on_instantiate(instance, args)
     end
 end
 
+local function class_find_member(class, name)
+    local mro = getmetatable(class).mro
+    for i = 1, #mro do
+        local val = getmetatable(mro[i]).members[name]
+        if val ~= nil then
+            return val
+        end
+    end
+    return nil
+end
+
 local function class_make_construct(class)
     local mro = getmetatable(class).mro
     local ctors = {}
@@ -170,11 +228,30 @@ end
 
 local function class_call_lazy(class, args)
     local class_meta = getmetatable(class)
+    local make_super = function(inst, cls)
+        return super_make(class_meta.mro, cls, inst)
+    end
+    local find_member = function(k)
+        if k == "super" then
+            return make_super
+        end
+        return class_find_member(class, k)
+    end
+    class_meta.find_member = find_member
+
     --  构造 instance metatable
     local instance_meta = {
         class = class,
-        __index = instance_index_lazy
+        __index = function(inst, k)
+            local v = find_member(k)
+            if v ~= nil and k ~= "super" then
+                inst[k] = v
+            end
+            return v
+        end
     }
+    class_meta.instance_meta = instance_meta
+
     --  生成类实例创建函数
     class_meta.__call = function(_, args)
         local clazz = class
