@@ -85,3 +85,47 @@ local k1 = K1()
 
 assert("Method of K1:Method of B:Method of O" == k1:testSuper())
 assert("Method of K1:Method of O" == k1:testSuper2())
+
+----------------------------------------------------------------------------
+--  Override chain Test
+local AChain = Class()
+local BChain = Class(AChain)
+local CChain = Class(BChain)
+local DChain = Class(CChain)
+
+--  override continuously
+function AChain:overrideContinuously(s)
+    return "A" .. (s or "")
+end
+
+function BChain:overrideContinuously(s)
+    return "B" .. self:super():overrideContinuously(s)
+end
+
+function CChain:overrideContinuously(s)
+    return "C" .. self:super():overrideContinuously(s)
+end
+
+function DChain:overrideContinuously(s)
+    return "D" .. self:super():overrideContinuously(s)
+end
+
+local dChain = DChain()
+assert("DCBA" == dChain:overrideContinuously())
+
+--  override discontinuously
+function AChain:overrideDiscontinuously(s)
+    return "A" .. (s or "")
+end
+
+function BChain:overrideDiscontinuously(s)
+    return "B" .. self:super():overrideDiscontinuously(s)
+end
+--  discontinue in CChain
+function DChain:overrideDiscontinuously(s)
+    return "D" .. self:super():overrideDiscontinuously(s)
+end
+
+local dChain = DChain()
+--  TODO known bug: dChain:overrideDiscontinuously() return value expect "DBA" but "DBBA"
+-- assert("DBA" == dChain:overrideDiscontinuously())

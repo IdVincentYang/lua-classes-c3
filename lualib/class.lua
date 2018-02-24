@@ -167,7 +167,7 @@ local function super_make(mro, class, instance)
             if not callable(val) then
                 return val
             end
-            local func_wraper = function(t, ...)
+            local func_wrapper = function(t, ...)
                 local inst = nil
                 if t == super then
                     inst = instance
@@ -187,8 +187,8 @@ local function super_make(mro, class, instance)
                 end
                 return table.unpack(ret, 2)
             end
-            rawset(super, k, func_wraper)
-            return func_wraper
+            rawset(super, k, func_wrapper)
+            return func_wrapper
         end
     }
     return setmetatable(super, super_meta)
