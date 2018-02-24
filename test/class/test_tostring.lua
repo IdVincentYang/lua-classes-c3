@@ -18,7 +18,7 @@ function AToString:toString()
 end
 -- class BToString break overriding of function toString
 local BToString = Class("BToString", AToString)
-local b = BToString()
+
 local CToString = Class("CToString", BToString)
 
 function CToString:toString()

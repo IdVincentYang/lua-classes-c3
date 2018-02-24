@@ -64,6 +64,77 @@ local function get_class_name(class)
     return getmetatable(class).name or "<anonymous>"
 end
 
+--  操作 mros 中的数组中的元素时，使用增加数组偏移量的方式来避免移动数组中的元素
+--  mros's element style: { idx: <start index>, num: <class num>, arr: <origin array> }
+local function merge_mro(out, mros)
+    local n = #mros
+    if n == 0 then
+        return out
+    end
+    local in_tail = false
+    local mro, h, m, i, j
+    i = 1
+    while i < n do
+        repeat
+            --  取出第i个tail中的第一个元素
+            mro = mros[i]
+            if mro.num == 0 then
+                --  此 mro 已空了，取下一个的
+                break
+            end
+            --  取出第 i 个 mro 中的头
+            h = mro.arr[mro.idx]
+            --  判断其它 mro 中是否有 h 在 tail 中
+            j = 1
+            while j <= n do
+                if i == j then
+                    if j == n then
+                        break
+                    else
+                        j = j + 1
+                    end
+                end
+                m = mros[j]
+                j = j + 1
+                local arr = m.arr
+                local v = m.idx + m.num
+                for u = m.idx + 1, v do
+                    if arr[u] == h then
+                        in_tail = true
+                        break
+                    end
+                end
+
+                if in_tail then
+                    break
+                end
+            end
+            --  如果  在其它 mro 的 tail 中，取下一个 mro 的 h
+            if in_tail then
+                in_tail = false
+                break
+            end
+            --  输出 h
+            out[#out + 1] = h
+            --  删除 mros 中所有 h
+            for k = 1, n do
+                mro = mros[k]
+                if mro.num > 0 and mro.arr[mro.idx] == h then
+                    mro.idx = mro.idx + 1
+                    mro.num = mro.num - 1
+                end
+            end
+            i = 0
+        until true
+        i = i + 1
+    end
+    --  如果遍历完了 mros 但是还是有 h 在别的 mro 的 tail 中，说明无法 merge
+    if in_tail then
+        return nil
+    else
+        return out
+    end
+end
 --------------------------------------------------------------------------------
 --  super functions
 local function super_newindex(t, k, v)
@@ -124,7 +195,6 @@ local function super_make(mro, class, instance)
 end
 --------------------------------------------------------------------------------
 --  instance functions
-
 local function instance_tostring(instance)
     local instance_meta = getmetatable(instance)
     local class_meta = getmetatable(instance_meta.class)
@@ -147,6 +217,7 @@ local function instance_tostring(instance)
 
     return string.format("instance of %s: %s", class_name, address)
 end
+
 --------------------------------------------------------------------------------
 --  class functions
 local function class_register(class, name)
@@ -254,135 +325,12 @@ local function class_make_construct(class)
     end
 end
 
-local function class_call_lazy(class, args)
-    local class_meta = getmetatable(class)
-    local make_super = function(inst, cls)
-        return super_make(class_meta.mro, cls, inst)
-    end
-    local find_member = function(k)
-        if k == "super" then
-            return make_super
-        end
-        return class_find_member(class, k)
-    end
-    class_meta.find_member = find_member
-
-    --  构造 instance metatable
-    local instance_meta = {
-        class = class,
-        __index = function(inst, k)
-            local v = find_member(k)
-            if v ~= nil and k ~= "super" then
-                inst[k] = v
-            end
-            return v
-        end,
-        __tostring = instance_tostring
-    }
-    class_meta.instance_meta = instance_meta
-
-    --  生成类实例创建函数
-    class_meta.__call = function(_, args)
-        local clazz = class
-        local meta = class_meta
-        local abstract = meta.abstract
-        if abstract == nil then
-            abstract = class_is_abstract(clazz)
-            meta.abstract = abstract
-        end
-        if abstract == true then
-            error(make_message("can't instantiate abstract class", get_class_name(clazz)))
-        end
-
-        local instance = setmetatable({}, instance_meta)
-        local construct = meta.construct
-        if not construct then
-            construct = class_make_construct(clazz)
-            meta.construct = construct
-        end
-        construct(instance, args)
-        return instance
-    end
-    return class_meta.__call(class, args)
-end
-
---  操作 mros 中的数组中的元素时，使用增加数组偏移量的方式来避免移动数组中的元素
---  mros's element style: { idx: <start index>, num: <class num>, arr: <origin array> }
-local function merge_mro(out, mros)
-    local n = #mros
-    if n == 0 then
-        return out
-    end
-    local in_tail = false
-    local mro, h, m, i, j
-    i = 1
-    while i < n do
-        repeat
-            --  取出第i个tail中的第一个元素
-            mro = mros[i]
-            if mro.num == 0 then
-                --  此 mro 已空了，取下一个的
-                break
-            end
-            --  取出第 i 个 mro 中的头
-            h = mro.arr[mro.idx]
-            --  判断其它 mro 中是否有 h 在 tail 中
-            j = 1
-            while j <= n do
-                if i == j then
-                    if j == n then
-                        break
-                    else
-                        j = j + 1
-                    end
-                end
-                m = mros[j]
-                j = j + 1
-                local arr = m.arr
-                local v = m.idx + m.num
-                for u = m.idx + 1, v do
-                    if arr[u] == h then
-                        in_tail = true
-                        break
-                    end
-                end
-
-                if in_tail then
-                    break
-                end
-            end
-            --  如果  在其它 mro 的 tail 中，取下一个 mro 的 h
-            if in_tail then
-                in_tail = false
-                break
-            end
-            --  输出 h
-            out[#out + 1] = h
-            --  删除 mros 中所有 h
-            for k = 1, n do
-                mro = mros[k]
-                if mro.num > 0 and mro.arr[mro.idx] == h then
-                    mro.idx = mro.idx + 1
-                    mro.num = mro.num - 1
-                end
-            end
-            i = 0
-        until true
-        i = i + 1
-    end
-    --  如果遍历完了 mros 但是还是有 h 在别的 mro 的 tail 中，说明无法 merge
-    if in_tail then
-        return nil
-    else
-        return out
-    end
-end
-
 --  https://en.wikipedia.org/wiki/C3_linearization
-local function make_class_c3(name, extends, members)
+local function class_make(name, extends, members)
     --  先声明类
     local class = {}
-    --  构建mro序列
+    local class_meta = {}
+    --  构建 MRO 序列
     local tail_mros = {}
     local base_num = #extends
     for i = 1, base_num do
@@ -408,19 +356,61 @@ local function make_class_c3(name, extends, members)
             make_message("can't create a consistent method resolution order (MRO) for bases", table.unpack(base_names))
         )
     end
+    -- 构建 find_member
+    local make_super = function(inst, cls)
+        return super_make(class_meta.mro, cls, inst)
+    end
+    local find_member = function(k)
+        if k == "super" then
+            return make_super
+        end
+        return class_find_member(class, k)
+    end
+    --  构造 instance metatable
+    local instance_meta = {
+        class = class,
+        __index = function(inst, k)
+            local v = find_member(k)
+            if v ~= nil and k ~= "super" then
+                inst[k] = v
+            end
+            return v
+        end,
+        __tostring = instance_tostring
+    }
+    --  init class_meta
+    class_meta.address = string.sub(tostring(class), 8)
+    class_meta.find_member = find_member
+    class_meta.instance_meta = instance_meta
+    class_meta.members = members
+    class_meta.mro = mro
+    class_meta.name = name
+    class_meta.__newindex = class_set_member
+    class_meta.__tostring = class_tostring
 
-    return setmetatable(
-        class,
-        {
-            address = string.sub(tostring(class), 8), --  use sub(8) to remove the prefix: "table: "
-            members = members,
-            mro = mro,
-            name = name,
-            __newindex = class_set_member,
-            __call = class_call_lazy,
-            __tostring = class_tostring
-        }
-    )
+    class_meta.__call = function(_, args)
+        local clazz = class
+        local meta = class_meta
+        local abstract = meta.abstract
+        if abstract == nil then
+            abstract = class_is_abstract(clazz)
+            meta.abstract = abstract
+        end
+        if abstract == true then
+            error(make_message("can't instantiate abstract class", get_class_name(clazz)))
+        end
+
+        local instance = setmetatable({}, instance_meta)
+        local construct = meta.construct
+        if not construct then
+            construct = class_make_construct(clazz)
+            meta.construct = construct
+        end
+        construct(instance, args)
+        return instance
+    end
+
+    return setmetatable(class, class_meta)
 end
 
 --------------------------------------------------------------------------------
@@ -490,7 +480,7 @@ return setmetatable(
             if name ~= nil and class_map[name] then
                 error(make_message("there is class registered with this name", name, class_map[name]))
             end
-            local class = make_class_c3(name, extends, members)
+            local class = class_make(name, extends, members)
             class_register(class, name)
             return class
         end
