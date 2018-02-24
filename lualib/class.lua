@@ -75,15 +75,15 @@ local function super_make(mro, class, instance)
         class = mro[1]
     end
     local super_class = nil
-    local super_meta = nil
+    local super_class_meta = nil
     for i = 1, #mro do
         if mro[i] == class then
             super_class = mro[i + 1]
-            super_meta = getmetatable(super_class)
+            super_class_meta = getmetatable(super_class)
             break
         end
     end
-    if not super_meta then
+    if not super_class_meta then
         return nil
     end
 
@@ -92,7 +92,7 @@ local function super_make(mro, class, instance)
         class = super_class,
         __newindex = super_newindex,
         __index = function(_, k)
-            local val = super_meta.find_member(k)
+            local val = super_class_meta.find_member(k)
             if not callable(val) then
                 return val
             end
@@ -108,7 +108,7 @@ local function super_make(mro, class, instance)
                     error(make_message("super with invalid instance when call method:", k))
                 end
                 local instance_meta = getmetatable(inst)
-                setmetatable(inst, super_meta.instance_meta)
+                setmetatable(inst, super_class_meta.instance_meta)
                 local ret = table.pack(pcall(val, inst, ...))
                 setmetatable(inst, instance_meta)
                 if not ret[1] then
@@ -122,7 +122,31 @@ local function super_make(mro, class, instance)
     }
     return setmetatable(super, super_meta)
 end
+--------------------------------------------------------------------------------
+--  instance functions
 
+local function instance_tostring(instance)
+    local instance_meta = getmetatable(instance)
+    local class_meta = getmetatable(instance_meta.class)
+    local custom_tostring = class_meta.find_member("toString")
+
+    if custom_tostring then
+        return custom_tostring(instance)
+    end
+
+    local class_name = class_meta.name or class_meta.address
+    local instance_meta_tostring = instance_meta.__tostring
+    --  get instance address
+    local address = instance_meta.address
+    if not address then
+        instance_meta.__tostring = nil
+        address = string.sub(tostring(instance), 8)
+        instance_meta.address = address
+        instance_meta.__tostring = instance_meta_tostring
+    end
+
+    return string.format("instance of %s: %s", class_name, address)
+end
 --------------------------------------------------------------------------------
 --  class functions
 local function class_register(class, name)
@@ -183,6 +207,10 @@ local function class_is_abstract(class)
         end
     end
     return false
+end
+
+local function class_tostring(class)
+    return string.format("class: %s", getmetatable(class).name or getmetatable(class).address)
 end
 
 local function class_on_instantiate(instance, args)
@@ -248,7 +276,8 @@ local function class_call_lazy(class, args)
                 inst[k] = v
             end
             return v
-        end
+        end,
+        __tostring = instance_tostring
     }
     class_meta.instance_meta = instance_meta
 
@@ -383,11 +412,13 @@ local function make_class_c3(name, extends, members)
     return setmetatable(
         class,
         {
+            address = string.sub(tostring(class), 8), --  use sub(8) to remove the prefix: "table: "
             members = members,
             mro = mro,
             name = name,
             __newindex = class_set_member,
-            __call = class_call_lazy
+            __call = class_call_lazy,
+            __tostring = class_tostring
         }
     )
 end

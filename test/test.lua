@@ -3,6 +3,7 @@ local Class = require("lualib/class")
 local test_cases = {
     "class/test_define",
     "class/test_inherit",
+    "class/test_tostring",
     "class/test_abstract"
 }
 
