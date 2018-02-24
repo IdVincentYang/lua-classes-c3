@@ -23,5 +23,7 @@
 
 已知问题
 ----
-1. 如果 override 函数在类继承链中间有不连续的情况时，基类的 override 函数有可能会被调用多次。
-* 例：类继承链 A<-B<-C<-D 中 A 是基类， ABD 都有 override 函数 `func` 而 C 没有，且 B D 的 func 函数中都有调用 `self:super():func()`，那么调用 D 的 func 函数时，B 类的 `func` 函数会被调用两次
+1. 如果 override 函数在类继承链中间有不连续的情况时，父类的 override 函数有可能会被调用多次。例：
+    1. 类继承链 A<-B<-C<-D 中 A 是父类
+    2. ABD 都有 override 函数 `func` 而 C 没有，且 B D 的 func 函数中都有调用 `self:super():func()`
+    3. 那么调用 D 的 `func` 函数时，B 类的 `func` 函数会被调用两次
