@@ -4,7 +4,7 @@
 在库设计时，类定义API的设计遵循通常的Lua编程习惯，可以按顺序书写定义类的所有成员。
 首先，定义一个空类：
 ``` lua
-local Class = require "lualib/class"
+local Class = require "c3class"
 
 local MyClass = Class()
 ```
@@ -147,7 +147,7 @@ local MyClass = Class("MyClassName", {
 为了方便代码阅读，定义类时推荐这样书写：
 ```lua
 --  MyClass.lua
-local Class = require "lualib/class"
+local Class = require "c3class"
 
 --  定义命名类，使用初始化表定义类成员属性
 local MyClass = Class("MyClassName", {

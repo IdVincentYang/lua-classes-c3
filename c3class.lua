@@ -1,3 +1,6 @@
+--  TODO:
+--  构造函数 不能调用 super
+--  __tostring 实现 metamethod, 和相关继承
 --------------------------------------------------------------------------------
 --  local variables and util functions
 local function callable(v)

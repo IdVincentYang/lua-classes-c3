@@ -2,11 +2,12 @@ package = "lua-c3class"
 version = "0.7-1"
 
 source = {
-    url = "git://github.com/IdVincentYang/lua-classes-c3.git"
+    url = "git://github.com/IdVincentYang/lua-classes-c3.git",
+    tag = "v0.7"
 }
 
 description = {
-    summary = "An implementation of the [C3 superclass linearization algorithm](https://en.wikipedia.org/wiki/C3_linearization) with Lua.",
+    summary = "Lua c3class module is an OOP library which supports multi-inheritance using the C3 superclass linearization algorithm",
     detailed = [[]],
     homepage = "https://github.com/IdVincentYang/lua-classes-c3",
     license = "MIT"
@@ -20,10 +21,5 @@ build = {
     type = "builtin",
     modules = {
         ["c3class"] = "c3class.lua"
-    },
-    copy_directories = {
-        "doc",
-        "test",
-        "README.md",
     }
 }
