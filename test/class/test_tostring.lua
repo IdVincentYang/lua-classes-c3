@@ -1,4 +1,4 @@
-local Class = require("lualib/class")
+local Class = require "c3class"
 
 --  tostring(<class>) output class name or class address
 local ClassWithName = Class("ClassWithName")

@@ -1,4 +1,4 @@
-local Class = require("lualib/class")
+local Class = require "c3class"
 
 local test_cases = {
     "class/test_define",

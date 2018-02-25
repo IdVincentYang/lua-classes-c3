@@ -1,4 +1,4 @@
-local Class = require("lualib/class")
+local Class = require "c3class"
 
 local Reader = Class("Reader")
 Reader.read = Class.ABSTRACT_FUNCTION
