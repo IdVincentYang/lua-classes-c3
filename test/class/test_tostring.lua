@@ -19,10 +19,10 @@ end
 -- class BToString break overriding of function toString
 local BToString = Class("BToString", AToString)
 
-local CToString = Class("CToString", BToString)
+local CToString, super = Class("CToString", BToString)
 
 function CToString:toString()
-    return "C" .. self:super():toString()
+    return "C" .. super(self):toString()
 end
 
 local c = CToString()

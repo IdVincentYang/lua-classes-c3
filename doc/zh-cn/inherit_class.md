@@ -11,13 +11,14 @@
 ``` lua
 
 local O = Class("O")
-local A = Class("A", O)
 
 O.inheritProperty = "Property Of O"
 
 function O:testInherit()
     return "Method of O"
 end
+
+local A = Class("A", O)
 ```
 A 的实例拥有类 O 的所有成员，调用测试代码：
 ``` lua
@@ -64,71 +65,116 @@ Method of O
 Method of A
 ```
 
-super 成员函数
+super 函数
 ----
-1. super 函数是默认添加到类中的一个成员函数，在类的实现中可以通过 `self:super()` 调用。
-2. super 函数返回的是一个父类的代理`table`对象，**不是真正的父类**。
 
-派生类在覆盖父类函数时，很多情况下并不需要完全重新实现同名函数，只需要在父类函数的前后添加一些处理，然后调用父类函数：
+当子类的成员函数覆盖了父类的成员函数时，很多情况下子类函数的逻辑和父类的的逻辑并不是完全不一样，只需要在父类的逻辑前或后添加一些特殊处理就可以了，这种情形下可以在子类函数的逻辑中调用 super 函数来直接调用分类的函数逻辑，并不需要重新实现。
+
+super 函数不是类的成员函数，也不是全局函数，而是在通过 Class 定义类时通过第二参数返回的一个局部函数，先定义一个基类：
 ``` lua
-function O:testSuper()
-    return "Method of O"
+local TestSuperA =
+    Class(
+    "TestSuperA",
+    {
+        propertyA = "A"
+    }
+)
+
+function TestSuperA:append(str)
+    return str .. self.propertyA
 end
 
-local B = Class("B", O)
+local testSuperA = TestSuperA()
+assert(testSuperA:append("STRING_") == "STRING_A")
+```
+然后派生一个子类：
+``` lua
+local TestSuperB, super =
+    Class(
+    "TestSuperB",
+    TestSuperA,
+    {
+        propertyB = "B"
+    }
+)
 
-function B:testSuper()
-    --  在父类的结果前添加一个前缀
-    local arr = {"Method of B"}
-    arr[#arr + 1] = self:super():testSuper()
-    return table.concat(arr, ":")
+```
+通过局部变量 super 变量来保存 super 函数，就可以在子类函数中调用：
+``` lua
+function TestSuperB:append(str)
+    return super(self):append(str) .. self.propertyB
 end
 ```
-调用测试代码：
+调用测试函数：
 ``` lua
-print(B():testSuper())
+local testSuperB = TestSuperB()
+testSuperB:append("STRING_")
 ```
 输出为：
 ```
-Method of B:Method of O
+STRING_AB
 ```
+- super 函数的功能可以定义为：**在当前类的父类中，按MBO顺序查找指定成员**
+- super 函数接受两个参数：
+    - 第一个为当前类实例
+    - 第二个参数为MBO序列中最后一个不需要查找的类，默认为当前类，即: `super(self) == super(self, CurrentClass)`
 
-注意：
-
-当多继承时，super 函数返回的结果是由[〝C3算法〞](https://en.wikipedia.org/wiki/C3_linearization)确定的MRO顺序决定的，可能是继承树上的父类，也可能是兄弟类。定义一个类 K1 继承 A 和 B 组成菱形结构：
+再看看比较复杂的情况，把继承结构扩充成菱形:
 ``` lua
-local K1 = Class("K1", A, B)
+local TestSuperC, super =
+    Class(
+    "TestSuperC",
+    TestSuperA,
+    {
+        propertyC = "C"
+    }
+)
 
-function K1:testSuper()
-    local arr = {"Method of K1"}
-    --  调用父类 B 的实现
-    --  可以直接调用 B.testSuper(self)
-    --  为了演示使用 super
-    arr[#arr + 1] = self:super(A):testSuper()
-    return table.concat(arr, ":")
+function TestSuperC:append(str)
+    return super(self):append(str) .. self.propertyC
+end
+
+assert(TestSuperC():append("STRING_") == "STRING_AC")
+
+local TestSuperD, super =
+    Class(
+    "TestSuperD",
+    TestSuperB,
+    TestSuperC,
+    {
+        propertyD = "D"
+    }
+)
+
+function TestSuperD:append(str)
+    return super(self):append(str) .. self.propertyD
 end
 ```
-调用测试代码：
+调用测试函数：
 ``` lua
-local k1 = K1()
-print(k1:testSuper())
+local testSuperD = TestSuperD()
+print(testSuperD:append("STRING_"))
 ```
 输出为：
 ```
-Method of K1:Method of B:Method of O
+STRING_ABD
 ```
-注意到函数 `K1:testSuper` 的实现中父类的调用方式为 `self:super(A)` ，这是因为K1的MRO顺序为：K1,A,B,O。要调用B的实现，super要从A开始找；即对于类 K1， super(A) = B。
-如果直接调用 `self:super()` 根据MRO顺序，super会找到父类A，然后调用 testSuper 函数时，会调用到基类 O 的同名函数：
-``` lua
-function K1:testSuper2()
-    local arr = {"Method of K1"}
-    arr[#arr + 1] = self:super():testSuper()
-    return table.concat(arr, ":")
-end
+- 注意：本实现和 python 的实现不同，如果在 python 中， 上面测试代码应输出 `STRING_ACBD`。本实现如此设计的理由是：
+    - 当定义 TestSuperB时，只有基类 TestSuperA，调用 super 的本意大部分情况下应该是调用 TestSuperA 中的方法，而不是不知道何时派生出来的兄弟类 TestSuperC
+    - 当前的实现比较简单，当在通过 super 调用父类的函数中再次调用 super 时不用切换 super 的上下文
 
-print(K1:testSuper2())
+当明确知道需要跳过某个父类去查找方法时，可以通过 super 的第二个参数指定:
+``` lua
+function TestSuperD:appendAlter(str)
+    --  skip base class TestSuperB to search function 'append'
+    return super(self, TestSuperB):append(str) .. self.propertyD
+end
+```
+这样 super 函数在查找成员函数时，就会从 class TestSuperD 的 MRO 中基类 TestSuperB 之后开始查找，调用测试代码：
+``` lua
+print(testSuperD:appendAlter("STRING_"))
 ```
 输出为：
 ```
-Method of K1:Method of O
+STRING_ACD
 ```

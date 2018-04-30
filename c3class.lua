@@ -1,6 +1,7 @@
 --  TODO:
 --  构造函数 不能调用 super
 --  __tostring 实现 metamethod, 和相关继承
+--  instance of
 --------------------------------------------------------------------------------
 --  local variables and util functions
 local function callable(v)
@@ -138,64 +139,73 @@ local function merge_mro(out, mros)
         return out
     end
 end
+
+local function instance_of_class(instance, class)
+    --  TODO
+    return true
+end
+
 --------------------------------------------------------------------------------
 --  super functions
 local function super_newindex(t, k, v)
     error(make_message("super can't set new key value pair:", k, type(v)))
 end
 
-local function super_make(mro, class, instance)
-    if class == nil then
-        class = mro[1]
-    end
-    local super_class = nil
-    local super_class_meta = nil
-    for i = 1, #mro do
-        if mro[i] == class then
-            super_class = mro[i + 1]
-            super_class_meta = getmetatable(super_class)
-            break
+local function super_make(class, mro)
+    return function(instance, cls)
+        if instance == null or not instance_of_class(instance, class) then
+            error(make_message("invalid instance", instance, "of", class))
         end
-    end
-    if not super_class_meta then
-        return nil
-    end
+        if cls == nil then
+            cls = class
+        end
+        local base_num = #mro
+        local idx = 1
+        repeat
+            local base_class = mro[idx]
+            idx = idx + 1
+            if base_class == cls then
+                break
+            end
+        until idx > base_num
+        if idx > base_num then
+            return nil
+        end
 
-    local super = {}
-    local super_meta = {
-        class = super_class,
-        __newindex = super_newindex,
-        __index = function(_, k)
-            local val = super_class_meta.find_member(k)
-            if not callable(val) then
-                return val
-            end
-            local func_wrapper = function(t, ...)
-                local inst = nil
-                if t == super then
-                    inst = instance
-                else
-                    --  TODO check t instance of class
-                    inst = t
-                end
-                if not inst then
-                    error(make_message("super with invalid instance when call method:", k))
-                end
-                local instance_meta = getmetatable(inst)
-                setmetatable(inst, super_class_meta.instance_meta)
-                local ret = table.pack(pcall(val, inst, ...))
-                setmetatable(inst, instance_meta)
-                if not ret[1] then
-                    error(ret[2], 0)
-                end
-                return table.unpack(ret, 2)
-            end
-            rawset(super, k, func_wrapper)
-            return func_wrapper
-        end
-    }
-    return setmetatable(super, super_meta)
+        local super_instance = {}
+        return setmetatable(
+            super_instance,
+            {
+                __index = function(_, k)
+                    -- print("---- super find:", k, class)
+                    for i = idx, #mro do
+                        local val = getmetatable(mro[i]).members[k]
+                        if val ~= nil then
+                            if type(val) == "function" then
+                                local f = val
+                                -- print("---- found in base", mro[i])
+                                val = function(self, ...)
+                                    --  如果通过super instance 调用方法,则把 super instance 替换为 类的 instance
+                                    if self == super_instance then
+                                        -- print("---- call func with", instance)
+                                        return f(instance, ...)
+                                    else
+                                        -- print("---- call func with self:", self)
+                                        return f(self, ...)
+                                    end
+                                end
+                            end
+                            return val
+                        end
+                    end
+                    return nil
+                end,
+                __newindex = super_newindex
+            }
+        )
+    end
 end
+
 --------------------------------------------------------------------------------
 --  instance functions
 local function instance_tostring(instance)
@@ -298,17 +308,6 @@ local function class_on_instantiate(instance, args)
     end
 end
 
-local function class_find_member(class, name)
-    local mro = getmetatable(class).mro
-    for i = 1, #mro do
-        local val = getmetatable(mro[i]).members[name]
-        if val ~= nil then
-            return val
-        end
-    end
-    return nil
-end
-
 local function class_make_construct(class)
     local mro = getmetatable(class).mro
     local ctors = {}
@@ -359,22 +358,21 @@ local function class_make(name, extends, members)
             make_message("can't create a consistent method resolution order (MRO) for bases", table.unpack(base_names))
         )
     end
-    -- 构建 find_member
-    local make_super = function(inst, cls)
-        return super_make(class_meta.mro, cls, inst)
-    end
     local find_member = function(k)
-        if k == "super" then
-            return make_super
+        for i = 1, #mro do
+            local val = getmetatable(mro[i]).members[k]
+            if val ~= nil then
+                return val
+            end
         end
-        return class_find_member(class, k)
+        return nil
     end
     --  构造 instance metatable
     local instance_meta = {
         class = class,
         __index = function(inst, k)
             local v = find_member(k)
-            if v ~= nil and k ~= "super" then
+            if v ~= nil then
                 inst[k] = v
             end
             return v
@@ -388,6 +386,7 @@ local function class_make(name, extends, members)
     class_meta.members = members
     class_meta.mro = mro
     class_meta.name = name
+    class_meta.super = super_make(class, mro)
     class_meta.__newindex = class_set_member
     class_meta.__tostring = class_tostring
 
@@ -413,7 +412,7 @@ local function class_make(name, extends, members)
         return instance
     end
 
-    return setmetatable(class, class_meta)
+    return setmetatable(class, class_meta), class_meta.super
 end
 
 --------------------------------------------------------------------------------
@@ -424,6 +423,7 @@ M.debug_table = debug_table
 M.ABSTRACT_FUNCTION = abstruct_func
 
 M.IsClass = class_is_class
+M.InstanceOf = instance_of_class
 
 M.OnInstantiate = class_on_instantiate
 
@@ -483,9 +483,9 @@ return setmetatable(
             if name ~= nil and class_map[name] then
                 error(make_message("there is class registered with this name", name, class_map[name]))
             end
-            local class = class_make(name, extends, members)
+            local class, super = class_make(name, extends, members)
             class_register(class, name)
-            return class
+            return class, super
         end
     }
 )

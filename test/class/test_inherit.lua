@@ -55,77 +55,74 @@ local a2 = A()
 assert("Method of O" == o2:testOverride())
 assert("Method of A" == a2:testOverride())
 
---  super example
-function O:testSuper()
-    return "Method of O"
-end
-
-function B:testSuper()
-    local arr = {"Method of B"}
-    arr[#arr + 1] = self:super():testSuper()
-    return table.concat(arr, ":")
-end
-
-assert("Method of B:Method of O" == B():testSuper())
-
---  Class O, A, B, K1 Made Diamond Inheritance
-function K1:testSuper()
-    local arr = {"Method of K1"}
-    arr[#arr + 1] = self:super(A):testSuper()
-    return table.concat(arr, ":")
-end
-
-function K1:testSuper2()
-    local arr = {"Method of K1"}
-    arr[#arr + 1] = self:super():testSuper()
-    return table.concat(arr, ":")
-end
-
-local k1 = K1()
-
-assert("Method of K1:Method of B:Method of O" == k1:testSuper())
-assert("Method of K1:Method of O" == k1:testSuper2())
-
 ----------------------------------------------------------------------------
---  Override chain Test
-local AChain = Class()
-local BChain = Class(AChain)
-local CChain = Class(BChain)
-local DChain = Class(CChain)
+--  super test
 
---  override continuously
-function AChain:overrideContinuously(s)
-    return "A" .. (s or "")
+local TestSuperA =
+    Class(
+    "TestSuperA",
+    {
+        propertyA = "A"
+    }
+)
+
+function TestSuperA:append(str)
+    return str .. self.propertyA
 end
 
-function BChain:overrideContinuously(s)
-    return "B" .. self:super():overrideContinuously(s)
+local testSuperA = TestSuperA()
+assert(testSuperA:append("STRING_") == "STRING_A")
+
+local TestSuperB, super =
+    Class(
+    "TestSuperB",
+    TestSuperA,
+    {
+        propertyB = "B"
+    }
+)
+
+function TestSuperB:append(str)
+    return super(self):append(str) .. self.propertyB
 end
 
-function CChain:overrideContinuously(s)
-    return "C" .. self:super():overrideContinuously(s)
+assert(TestSuperB():append("STRING_") == "STRING_AB")
+
+local TestSuperC, super =
+    Class(
+    "TestSuperC",
+    TestSuperA,
+    {
+        propertyC = "C"
+    }
+)
+
+function TestSuperC:append(str)
+    return super(self):append(str) .. self.propertyC
 end
 
-function DChain:overrideContinuously(s)
-    return "D" .. self:super():overrideContinuously(s)
+assert(TestSuperC():append("STRING_") == "STRING_AC")
+
+local TestSuperD, super =
+    Class(
+    "TestSuperD",
+    TestSuperB,
+    TestSuperC,
+    {
+        propertyD = "D"
+    }
+)
+
+function TestSuperD:append(str)
+    return super(self):append(str) .. self.propertyD
 end
 
-local dChain = DChain()
-assert("DCBA" == dChain:overrideContinuously())
-
---  override discontinuously
-function AChain:overrideDiscontinuously(s)
-    return "A" .. (s or "")
+function TestSuperD:appendAlter(str)
+    return super(self, TestSuperB):append(str) .. self.propertyD
 end
 
-function BChain:overrideDiscontinuously(s)
-    return "B" .. self:super():overrideDiscontinuously(s)
-end
---  discontinue in CChain
-function DChain:overrideDiscontinuously(s)
-    return "D" .. self:super():overrideDiscontinuously(s)
-end
+local testSuperD = TestSuperD()
+--  different of python, python should return "STRING_ACBD"
+assert(testSuperD:append("STRING_") == "STRING_ABD")
 
-local dChain = DChain()
---  TODO known bug: dChain:overrideDiscontinuously() return value expect "DBA" but "DBBA"
--- assert("DBA" == dChain:overrideDiscontinuously())
+assert(testSuperD:appendAlter("STRING_") == "STRING_ACD")
